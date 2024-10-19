@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blink Detection</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+
+        video {
+            display: none; /* Hides the video feed */
+        }
+
+        canvas {
+            display: none; /* Optionally hide the canvas as well */
+        }
+
+        #blink-counter {
+          position: absolute;
+          top: 50%;               /* Відступ від верхньої частини 50% */
+          left: 50%;              /* Відступ від лівої частини 50% */
+          transform: translate(-50%, -50%); /* Переміщення елемента на 50% його ширини і висоти назад для точного центрування */
+          color: red;
+          font-size: 24px;
+          font-weight: bold;
+          z-index: 1000;
+      }
+      
+    </style>
+</head>
+<body>
+    <div id="mobile-warning" style="display: none;">
+        <h2>Unfortunately, this program does not work in Telegram on mobile devices.</h2>
+        <button id="demo-button">Go to Demo Version</button>
+    </div>
+
+    <video id="video" autoplay></video>
+    <canvas id="output" width="640" height="480"></canvas>
+    <div id="blink-counter">Blinks: 0</div>
+
+    <!-- Load Mediapipe scripts directly from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script>
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('output');
+        const canvasCtx = canvasElement.getContext('2d');
+        const mobileWarningElement = document.getElementById('mobile-warning');
+        const demoButton = document.getElementById('demo-button');
+
+        demoButton.addEventListener('click', () => {
+            window.location.href = "https://example.com/demo"; // Replace with your demo URL
+        });
+
+        // Check if the user is on a mobile device
+        if (/Mobi|Android/i.test(navigator.userAgent)) {
+            // If on a mobile device, show the warning and hide other elements
+            mobileWarningElement.style.display = 'flex';
+            videoElement.style.display = 'none';
+            canvasElement.style.display = 'none';
+            document.getElementById('blink-counter').style.display = 'none';
+        } else {
+            // Only run the blink detection if not on mobile
+            const EAR_THRESHOLD = 0.17; // Threshold for detecting blinks
+            let blinkCounter = 0;
+            let totalBlinks = 0;
+            let lastBlinkTime = 0;
+            const BLINK_COOLDOWN = 0.3; // Cooldown to prevent multiple detections in quick succession
+
+            // Calculate Eye Aspect Ratio (EAR)
+            function calculateEAR(landmarks, left_eye_idx, right_eye_idx) {
+                function euclideanDist(point1, point2) {
+                    return Math.sqrt(
+                        Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2)
+                    );
+                }
+
+                const leftEAR = (
+                    euclideanDist(landmarks[left_eye_idx[1]], landmarks[left_eye_idx[5]]) +
+                    euclideanDist(landmarks[left_eye_idx[2]], landmarks[left_eye_idx[4]])
+                ) / (2.0 * euclideanDist(landmarks[left_eye_idx[0]], landmarks[left_eye_idx[3]]));
+
+                const rightEAR = (
+                    euclideanDist(landmarks[right_eye_idx[1]], landmarks[right_eye_idx[5]]) +
+                    euclideanDist(landmarks[right_eye_idx[2]], landmarks[right_eye_idx[4]])
+                ) / (2.0 * euclideanDist(landmarks[right_eye_idx[0]], landmarks[right_eye_idx[3]]));
+
+                return (leftEAR + rightEAR) / 2.0;
+            }
+
+            // Initialize FaceMesh
+            const faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            faceMesh.onResults((results) => {
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+                if (results.multiFaceLandmarks) {
+                    for (const landmarks of results.multiFaceLandmarks) {
+                        const leftEyeIndices = [33, 160, 158, 133, 153, 144];
+                        const rightEyeIndices = [362, 385, 387, 263, 373, 380];
+
+                        const avgEAR = calculateEAR(landmarks, leftEyeIndices, rightEyeIndices);
+
+                        // Blink detection
+                        if (avgEAR < EAR_THRESHOLD) {
+                            blinkCounter += 1;
+                        } else {
+                            const currentTime = performance.now() / 1000;
+                            if (blinkCounter >= 1 && currentTime - lastBlinkTime > BLINK_COOLDOWN) {
+                                totalBlinks += 1;
+                                lastBlinkTime = currentTime;
+                            }
+                            blinkCounter = 0;
+                        }
+
+                        // Display blink count
+                        document.getElementById('blink-counter').textContent = `Blinks: ${totalBlinks}`;
+                    }
+                }
+            });
+
+            // Set up the camera feed
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await faceMesh.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+
+            // Start the camera
+            camera.start();
+        }
+    </script>
+</body>
+</html>
